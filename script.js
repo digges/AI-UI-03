@@ -8,44 +8,59 @@ function connectWebSocket() {
   socket.onmessage = function (event) {
     console.log("🔹 Received WebSocket Message: ", event.data);
 
+    // ✅ Remove loading message
+    let loadingDiv = document.getElementById("loading-message");
+    if (loadingDiv) {
+      loadingDiv.remove();
+    }
+
     try {
-      let data = JSON.parse(event.data);
+      // ✅ Check if message looks like JSON before parsing
+      if (event.data.trim().startsWith("{") || event.data.trim().startsWith("[")) {
+        let data = JSON.parse(event.data);
 
-      // ✅ Remove the loading message once data arrives
-      let loadingDiv = document.getElementById("loading-message");
-      if (loadingDiv) {
-        loadingDiv.remove();
-      }
-
-      if (
-        data.Positive !== undefined &&
-        data.Negative !== undefined &&
-        data.Neutral !== undefined
-      ) {
-        console.log("✅ Sentiment Report Detected!");
-        displayMessage("✅ Sentiment Report Generated.", "bot-message");
-        showSentimentChart(data);
-      } else if (data.candidates) {
-        let aiResponse = data.candidates[0].content.parts[0].text;
-        displayMessage(aiResponse, "bot-message");
+        // Handle sentiment report
+        if (
+          data.Positive !== undefined &&
+          data.Negative !== undefined &&
+          data.Neutral !== undefined
+        ) {
+          console.log("✅ Sentiment Report Detected!");
+          displayMessage("✅ Sentiment Report Generated.", "bot-message");
+          showSentimentChart(data);
+        } 
+        // Handle AI response
+        else if (data.candidates) {
+          let aiResponse = data.candidates[0].content.parts[0].text;
+          displayMessage(aiResponse, "bot-message");
+        } 
+        // Handle error object
+        else if (data.error) {
+          displayMessage(`❌ Error: ${data.error}`, "bot-message");
+        }
+        // Handle other JSON
+        else {
+          displayMessage(JSON.stringify(data), "bot-message");
+        }
       } else {
+        // ✅ Handle plain text messages (like error messages)
         displayMessage(event.data, "bot-message");
       }
     } catch (error) {
       console.error("❌ Error parsing WebSocket response:", error);
-
-      // ✅ Remove the loading message even if there's an error
-      let loadingDiv = document.getElementById("loading-message");
-      if (loadingDiv) {
-        loadingDiv.remove();
-      }
-
+      // Display the raw message even if parsing fails
       displayMessage(event.data, "bot-message");
     }
   };
 
   socket.onerror = function (error) {
     console.error("❌ WebSocket Error: ", error);
+    displayMessage("❌ Connection error occurred.", "bot-message");
+  };
+
+  socket.onclose = function () {
+    console.log("🔌 WebSocket connection closed.");
+    displayMessage("🔌 Connection closed. Refresh to reconnect.", "bot-message");
   };
 
   return socket;
@@ -58,6 +73,7 @@ function handleKeyPress(event) {
     sendMessage();
   }
 }
+
 function sendMessage() {
   let userInput = document.getElementById("user-input").value.trim();
   if (userInput === "") return;
@@ -70,12 +86,20 @@ function sendMessage() {
   let loadingDiv = document.createElement("div");
   loadingDiv.id = "loading-message";
   loadingDiv.classList.add("bot-message");
+  loadingDiv.innerHTML = "⏳ Thinking...";
 
   chatBox.appendChild(loadingDiv);
   chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll
 
   // ✅ Send the message to WebSocket
-  socket.send(userInput);
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(userInput);
+  } else {
+    displayMessage("❌ Connection not ready. Please wait...", "bot-message");
+    if (loadingDiv) {
+      loadingDiv.remove();
+    }
+  }
 }
 
 function displayMessage(message, className) {
@@ -92,6 +116,10 @@ function displayMessage(message, className) {
 
         data.plans.forEach((plan) => {
           formattedResponse += `
+            <div style="background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #444; margin-bottom: 10px;">
+              <div style="font-size: 16px; font-weight: bold; color: #00d1b2;">${plan.name || 'Plan'}</div>
+              <div style="font-size: 14px; color: #ccc;">${plan.description || ''}</div>
+            </div>
           `;
         });
 
@@ -148,7 +176,6 @@ function displayMessage(message, className) {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// ✅ Function to display Sentiment Analysis Chart
 // ✅ Function to display Sentiment Analysis Chart
 function showSentimentChart(reportData) {
   console.log("🔹 Preparing to render chart with:", reportData);
