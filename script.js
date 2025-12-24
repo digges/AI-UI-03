@@ -14,52 +14,73 @@ function connectWebSocket() {
       loadingDiv.remove();
     }
 
-    try {
-      // ✅ Check if message looks like JSON before parsing
-      if (event.data.trim().startsWith("{") || event.data.trim().startsWith("[")) {
-        let data = JSON.parse(event.data);
+    // ✅ Check if the message is plain text (not JSON)
+    let messageText = event.data.trim();
+    
+    // If it doesn't start with { or [, it's plain text
+    if (!messageText.startsWith("{") && !messageText.startsWith("[")) {
+      console.log("📝 Plain text message received");
+      displayMessage(messageText, "bot-message");
+      return; // Exit early
+    }
 
-        // Handle sentiment report
-        if (
-          data.Positive !== undefined &&
-          data.Negative !== undefined &&
-          data.Neutral !== undefined
-        ) {
-          console.log("✅ Sentiment Report Detected!");
-          displayMessage("✅ Sentiment Report Generated.", "bot-message");
-          showSentimentChart(data);
-        } 
-        // Handle AI response
-        else if (data.candidates) {
-          let aiResponse = data.candidates[0].content.parts[0].text;
-          displayMessage(aiResponse, "bot-message");
-        } 
-        // Handle error object
-        else if (data.error) {
-          displayMessage(`❌ Error: ${data.error}`, "bot-message");
-        }
-        // Handle other JSON
-        else {
-          displayMessage(JSON.stringify(data), "bot-message");
-        }
-      } else {
-        // ✅ Handle plain text messages (like error messages)
-        displayMessage(event.data, "bot-message");
+    // ✅ Try to parse as JSON
+    try {
+      let data = JSON.parse(messageText);
+
+      // Handle sentiment report
+      if (
+        data.Positive !== undefined &&
+        data.Negative !== undefined &&
+        data.Neutral !== undefined
+      ) {
+        console.log("✅ Sentiment Report Detected!");
+        displayMessage("✅ Sentiment Report Generated.", "bot-message");
+        showSentimentChart(data);
+      } 
+      // Handle AI response
+      else if (data.candidates) {
+        let aiResponse = data.candidates[0].content.parts[0].text;
+        displayMessage(aiResponse, "bot-message");
+      } 
+      // Handle error object
+      else if (data.error) {
+        displayMessage(`❌ ${data.error}`, "bot-message");
+      }
+      // Handle plans
+      else if (data.plans) {
+        displayMessage(JSON.stringify(data), "bot-message");
+      }
+      // Handle other JSON
+      else {
+        displayMessage(JSON.stringify(data), "bot-message");
       }
     } catch (error) {
-      console.error("❌ Error parsing WebSocket response:", error);
-      // Display the raw message even if parsing fails
-      displayMessage(event.data, "bot-message");
+      console.error("❌ Error parsing JSON:", error);
+      // If JSON parsing fails, display as plain text
+      displayMessage(messageText, "bot-message");
     }
   };
 
   socket.onerror = function (error) {
     console.error("❌ WebSocket Error: ", error);
+    
+    let loadingDiv = document.getElementById("loading-message");
+    if (loadingDiv) {
+      loadingDiv.remove();
+    }
+    
     displayMessage("❌ Connection error occurred.", "bot-message");
   };
 
   socket.onclose = function () {
     console.log("🔌 WebSocket connection closed.");
+    
+    let loadingDiv = document.getElementById("loading-message");
+    if (loadingDiv) {
+      loadingDiv.remove();
+    }
+    
     displayMessage("🔌 Connection closed. Refresh to reconnect.", "bot-message");
   };
 
@@ -81,6 +102,12 @@ function sendMessage() {
   displayMessage(userInput, "user-message");
   document.getElementById("user-input").value = "";
 
+  // ✅ Check if WebSocket is ready
+  if (socket.readyState !== WebSocket.OPEN) {
+    displayMessage("❌ Connection not ready. Please wait or refresh the page.", "bot-message");
+    return;
+  }
+
   // ✅ Create a placeholder for the reply
   let chatBox = document.getElementById("chat-box");
   let loadingDiv = document.createElement("div");
@@ -89,17 +116,10 @@ function sendMessage() {
   loadingDiv.innerHTML = "⏳ Thinking...";
 
   chatBox.appendChild(loadingDiv);
-  chatBox.scrollTop = chatBox.scrollHeight; // Auto-scroll
+  chatBox.scrollTop = chatBox.scrollHeight;
 
   // ✅ Send the message to WebSocket
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(userInput);
-  } else {
-    displayMessage("❌ Connection not ready. Please wait...", "bot-message");
-    if (loadingDiv) {
-      loadingDiv.remove();
-    }
-  }
+  socket.send(userInput);
 }
 
 function displayMessage(message, className) {
@@ -116,9 +136,10 @@ function displayMessage(message, className) {
 
         data.plans.forEach((plan) => {
           formattedResponse += `
-            <div style="background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #444; margin-bottom: 10px;">
+            <div style="background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #444; margin-bottom: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.3);">
               <div style="font-size: 16px; font-weight: bold; color: #00d1b2;">${plan.name || 'Plan'}</div>
               <div style="font-size: 14px; color: #ccc;">${plan.description || ''}</div>
+              ${plan.price ? `<div style="font-size: 14px; color: #ffd700; margin-top: 5px;">Price: <span style="font-weight: bold;">${plan.price}</span></div>` : ''}
             </div>
           `;
         });
@@ -165,11 +186,12 @@ function displayMessage(message, className) {
       formattedResponse += `</div>`;
       messageDiv.innerHTML = formattedResponse;
     } else {
-      messageDiv.innerHTML = message;
+      // ✅ Display plain text message
+      messageDiv.textContent = message;
     }
   } catch (error) {
-    console.error("❌ Error parsing JSON:", error);
-    messageDiv.innerHTML = message;
+    console.error("❌ Error formatting message:", error);
+    messageDiv.textContent = message;
   }
 
   chatBox.appendChild(messageDiv);
