@@ -8,27 +8,15 @@ function connectWebSocket() {
   socket.onmessage = function (event) {
     console.log("🔹 Received WebSocket Message: ", event.data);
 
-    // ✅ Remove loading message
-    let loadingDiv = document.getElementById("loading-message");
-    if (loadingDiv) {
-      loadingDiv.remove();
-    }
-
-    // ✅ Check if the message is plain text (not JSON)
-    let messageText = event.data.trim();
-    
-    // If it doesn't start with { or [, it's plain text
-    if (!messageText.startsWith("{") && !messageText.startsWith("[")) {
-      console.log("📝 Plain text message received");
-      displayMessage(messageText, "bot-message");
-      return; // Exit early
-    }
-
-    // ✅ Try to parse as JSON
     try {
-      let data = JSON.parse(messageText);
+      let data = JSON.parse(event.data);
 
-      // Handle sentiment report
+      // ✅ Remove the loading message once data arrives
+      let loadingDiv = document.getElementById("loading-message");
+      if (loadingDiv) {
+        loadingDiv.remove();
+      }
+
       if (
         data.Positive !== undefined &&
         data.Negative !== undefined &&
@@ -37,51 +25,39 @@ function connectWebSocket() {
         console.log("✅ Sentiment Report Detected!");
         displayMessage("✅ Sentiment Report Generated.", "bot-message");
         showSentimentChart(data);
-      } 
-      // Handle AI response
-      else if (data.candidates) {
+      } else if (data.candidates) {
         let aiResponse = data.candidates[0].content.parts[0].text;
         displayMessage(aiResponse, "bot-message");
-      } 
-      // Handle error object
-      else if (data.error) {
-        displayMessage(`❌ ${data.error}`, "bot-message");
-      }
-      // Handle plans
-      else if (data.plans) {
-        displayMessage(JSON.stringify(data), "bot-message");
-      }
-      // Handle other JSON
-      else {
-        displayMessage(JSON.stringify(data), "bot-message");
+      } else if (data.error) {
+        displayMessage(`❌ Error: ${data.error}`, "bot-message");
+      } else {
+        displayMessage(event.data, "bot-message");
       }
     } catch (error) {
-      console.error("❌ Error parsing JSON:", error);
-      // If JSON parsing fails, display as plain text
-      displayMessage(messageText, "bot-message");
+      console.error("❌ Error parsing WebSocket response:", error);
+      console.error("❌ RAW MESSAGE:", event.data);
+      console.error("⚠️ BACKEND IS NOT SENDING VALID JSON!");
+
+      // ✅ Remove the loading message even if there's an error
+      let loadingDiv = document.getElementById("loading-message");
+      if (loadingDiv) {
+        loadingDiv.remove();
+      }
+
+      // Show the error to user
+      displayMessage(`⚠️ Backend Error: ${event.data}`, "bot-message");
+      displayMessage(`🔧 Please check your backend server logs at Render.com`, "bot-message");
     }
   };
 
   socket.onerror = function (error) {
     console.error("❌ WebSocket Error: ", error);
-    
-    let loadingDiv = document.getElementById("loading-message");
-    if (loadingDiv) {
-      loadingDiv.remove();
-    }
-    
-    displayMessage("❌ Connection error occurred.", "bot-message");
+    displayMessage("❌ WebSocket connection error.", "bot-message");
   };
 
   socket.onclose = function () {
     console.log("🔌 WebSocket connection closed.");
-    
-    let loadingDiv = document.getElementById("loading-message");
-    if (loadingDiv) {
-      loadingDiv.remove();
-    }
-    
-    displayMessage("🔌 Connection closed. Refresh to reconnect.", "bot-message");
+    displayMessage("🔌 Connection closed. Please refresh the page.", "bot-message");
   };
 
   return socket;
@@ -102,9 +78,9 @@ function sendMessage() {
   displayMessage(userInput, "user-message");
   document.getElementById("user-input").value = "";
 
-  // ✅ Check if WebSocket is ready
+  // Check WebSocket status
   if (socket.readyState !== WebSocket.OPEN) {
-    displayMessage("❌ Connection not ready. Please wait or refresh the page.", "bot-message");
+    displayMessage("❌ Connection not ready. Please refresh the page.", "bot-message");
     return;
   }
 
@@ -136,10 +112,9 @@ function displayMessage(message, className) {
 
         data.plans.forEach((plan) => {
           formattedResponse += `
-            <div style="background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #444; margin-bottom: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.3);">
+            <div style="background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #444; margin-bottom: 10px;">
               <div style="font-size: 16px; font-weight: bold; color: #00d1b2;">${plan.name || 'Plan'}</div>
               <div style="font-size: 14px; color: #ccc;">${plan.description || ''}</div>
-              ${plan.price ? `<div style="font-size: 14px; color: #ffd700; margin-top: 5px;">Price: <span style="font-weight: bold;">${plan.price}</span></div>` : ''}
             </div>
           `;
         });
@@ -159,7 +134,6 @@ function displayMessage(message, className) {
       let formattedResponse = `<b>🛒 ${message.split(":")[0]}:</b><br><br>`;
       let productText = message.split(":")[1].trim();
 
-      // 🔥 Correct splitting using '||'
       let products = productText
         .split("||")
         .filter((item) => item.trim() !== "");
@@ -186,11 +160,10 @@ function displayMessage(message, className) {
       formattedResponse += `</div>`;
       messageDiv.innerHTML = formattedResponse;
     } else {
-      // ✅ Display plain text message
       messageDiv.textContent = message;
     }
   } catch (error) {
-    console.error("❌ Error formatting message:", error);
+    console.error("❌ Error parsing JSON:", error);
     messageDiv.textContent = message;
   }
 
@@ -198,24 +171,20 @@ function displayMessage(message, className) {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// ✅ Function to display Sentiment Analysis Chart
 function showSentimentChart(reportData) {
   console.log("🔹 Preparing to render chart with:", reportData);
 
   let chatBox = document.getElementById("chat-box");
 
-  // ✅ Remove any existing chart before creating a new one
   let existingChart = document.getElementById("chart-container");
   if (existingChart) {
     existingChart.remove();
   }
 
-  // ✅ Create chart container
   let chartContainer = document.createElement("div");
   chartContainer.id = "chart-container";
   chartContainer.classList.add("chart-container");
 
-  // ✅ Add heading
   let heading = document.createElement("div");
   heading.innerHTML = "<b>📊 Sentiment Analysis Report</b>";
   heading.style.textAlign = "center";
@@ -223,12 +192,10 @@ function showSentimentChart(reportData) {
   heading.style.marginBottom = "10px";
   chartContainer.appendChild(heading);
 
-  // ✅ Create canvas
   let canvas = document.createElement("canvas");
   canvas.id = "sentimentChart";
   chartContainer.appendChild(canvas);
 
-  // ✅ Append to chat box
   chatBox.appendChild(chartContainer);
   chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -236,7 +203,6 @@ function showSentimentChart(reportData) {
 
   console.log("✅ Final Report Data Sent to Chart.js:", reportData);
 
-  // ✅ Destroy only if chart exists
   if (
     window.sentimentChart &&
     typeof window.sentimentChart.destroy === "function"
@@ -244,7 +210,6 @@ function showSentimentChart(reportData) {
     window.sentimentChart.destroy();
   }
 
-  // ✅ Create Pie Chart
   window.sentimentChart = new Chart(ctx, {
     type: "pie",
     data: {
